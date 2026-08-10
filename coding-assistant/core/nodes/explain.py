@@ -25,3 +25,34 @@ Must NOT import:
     - streamlit, fastapi, chromadb, any LLM SDK directly
     - other core.nodes modules
 """
+
+from __future__ import annotations
+
+from core.state import AssistantState
+from services import llm
+
+
+def run(state: AssistantState) -> dict:
+    """Produce a natural-language answer for an "explain" intent turn.
+
+    Args:
+        state: reads user_message, attached_code, language, recent_turns,
+            summary, profile.
+
+    Returns:
+        A dict with exactly the key "answer" — the one field this node
+        owns.
+
+    Failure modes:
+        Propagates whatever services.llm.run_explainer raises, e.g.
+        RuntimeError if no API key is configured.
+    """
+    answer = llm.run_explainer(
+        state.user_message,
+        state.attached_code,
+        state.language,
+        state.recent_turns,
+        state.summary,
+        state.profile,
+    )
+    return {"answer": answer}

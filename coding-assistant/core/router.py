@@ -20,6 +20,9 @@ Responsibility:
                                                 user feedback on a pending
                                                 artifact, bypassing
                                                 classification
+      - state.awaiting_teaching is True      -> route to whatever persists
+                                                the user's taught answer,
+                                                bypassing classification
       - state.retry_count exceeds a bound    -> route to a terminal/give-up
                                                 node instead of looping
                                                 generate/grade forever
@@ -53,13 +56,16 @@ EXPLAIN = "explain"
 RETRIEVE = "retrieve"
 GRADE = "grade"
 GENERATE = "generate"
+ASK_FOR_HELP = "ask_for_help"
+LEARN_TAUGHT_FACT = "learn_taught_fact"
 
 # Below this, classify's result isn't trusted enough to act on.
 CONFIDENCE_THRESHOLD = 0.5
 
 # Retrieve/grade loop bound. Once state.retry_count exceeds this, stop
-# retrying and generate with whatever context was found rather than
-# looping on a low-quality retrieval forever.
+# retrying and ask the user for the correct answer (core.nodes.
+# ask_for_help) rather than loop on a low-quality retrieval forever, or
+# generate an answer from context that was never actually relevant.
 MAX_RETRIES = 2
 
 
@@ -79,32 +85,40 @@ def route(state: AssistantState) -> str:
     Returns:
         The name of the next node to run.
     """
-    # 1. A pending artifact awaiting the user's feedback takes priority
+    # 1. The user is answering a question core.nodes.ask_for_help just
+    # asked them — this takes priority over everything else, including
+    # re-classification: it's not a fresh request, it's the taught fact
+    # this turn exists to persist.
+    if state.awaiting_teaching:
+        return LEARN_TAUGHT_FACT
+
+    # 2. A pending artifact awaiting the user's feedback takes priority
     # over everything else, including re-classification: the reply is
     # fed straight back into generation instead of being reclassified.
     if state.awaiting_feedback:
         return GENERATE
 
-    # 2. No usable intent yet — unset, unrecognized, or too low-confidence
+    # 3. No usable intent yet — unset, unrecognized, or too low-confidence
     # to act on — falls back to a plain explanatory answer rather than
     # guessing at code generation.
     known_intents = (EXPLAIN, GENERATE)
     if state.intent not in known_intents or state.intent_confidence < CONFIDENCE_THRESHOLD:
         return EXPLAIN
 
-    # 3. Explain intent: answer directly, no retrieval involved.
+    # 4. Explain intent: answer directly, no retrieval involved.
     if state.intent == EXPLAIN:
         return EXPLAIN
 
-    # 4. Generate intent: walk retrieve -> grade -> generate, bounded by
-    # retry_count so a stubbornly low-quality retrieval can't loop
-    # forever.
-    if state.retry_count > MAX_RETRIES:
-        return GENERATE
+    # 5. Generate intent: walk retrieve -> grade -> generate. A grade of
+    # "insufficient" loops back to retrieve, bounded by retry_count —
+    # once that bound is hit, ask the user for help instead of letting
+    # generate hallucinate from context that was never actually relevant.
     if not state.retrieved_chunks:
         return RETRIEVE
     if state.overall_grade is None:
         return GRADE
     if state.overall_grade == "insufficient":
+        if state.retry_count > MAX_RETRIES:
+            return ASK_FOR_HELP
         return RETRIEVE
     return GENERATE
