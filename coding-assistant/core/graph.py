@@ -37,7 +37,18 @@ import dataclasses
 from typing import Callable
 
 from core import router
-from core.nodes import classify, load_memory
+from core.nodes import (
+    ask_for_help,
+    classify,
+    explain,
+    generate,
+    grade,
+    learn,
+    learn_taught_fact,
+    load_memory,
+    request_solution,
+    retrieve,
+)
 from core.state import AssistantState
 
 # A node is any callable matching this shape: read the whole state, return
@@ -53,18 +64,24 @@ LOAD_MEMORY = "load_memory"
 REQUEST_SOLUTION = "request_solution"
 LEARN = "learn"
 
-# TODO(phase 2+): register the remaining nodes as they're implemented.
-# Keys must cover every core.router node-name constant plus LOAD_MEMORY,
-# REQUEST_SOLUTION, and LEARN above.
 NODE_REGISTRY: dict[str, NodeFn] = {
     LOAD_MEMORY: load_memory.run,
     router.CLASSIFY: classify.run,
+    router.EXPLAIN: explain.run,
+    router.RETRIEVE: retrieve.run,
+    router.GRADE: grade.run,
+    router.GENERATE: generate.run,
+    router.ASK_FOR_HELP: ask_for_help.run,
+    router.LEARN_TAUGHT_FACT: learn_taught_fact.run,
+    REQUEST_SOLUTION: request_solution.run,
+    LEARN: learn.run,
 }
 
 # Once core.router.route() returns one of these, the node it names produces
-# a final answer for the turn (an explanation or a generated artifact) —
-# the router-driven loop stops and the fixed post-steps below take over.
-_TERMINAL_NODES = (router.EXPLAIN, router.GENERATE)
+# a final answer for the turn (an explanation, a generated artifact, a
+# request for help, or a thank-you for a taught fact) — the router-driven
+# loop stops and the fixed post-steps below take over.
+_TERMINAL_NODES = (router.EXPLAIN, router.GENERATE, router.ASK_FOR_HELP, router.LEARN_TAUGHT_FACT)
 
 
 def _apply(state: AssistantState, node_name: str) -> AssistantState:
@@ -95,8 +112,11 @@ def run(state: AssistantState) -> AssistantState:
 
     Fixed shape, framework-free (see module docstring): load_memory
     always runs first; classify runs next unless state.awaiting_feedback
-    is True (core.router's feedback-bypass rule — see core/router.py);
-    then core.router.route() is consulted in a loop to walk the
+    or state.awaiting_teaching is True (core.router's bypass rules —
+    see core/router.py) — classifying a reply that's actually feedback
+    on an artifact, or a taught answer to a question that's already
+    being asked back, would waste a call and could misroute it; then
+    core.router.route() is consulted in a loop to walk the
     retrieve/grade/generate-or-explain path until it names a terminal
     node; finally request_solution (only if artifacts were produced) and
     learn always close out the turn.
@@ -115,7 +135,7 @@ def run(state: AssistantState) -> AssistantState:
     """
     state = _apply(state, LOAD_MEMORY)
 
-    if not state.awaiting_feedback:
+    if not (state.awaiting_feedback or state.awaiting_teaching):
         state = _apply(state, router.CLASSIFY)
 
     next_node = router.route(state)

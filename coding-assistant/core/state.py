@@ -83,8 +83,10 @@ class AssistantState:
     # Writer: core.nodes.classify. Confidence score in [0, 1] for `intent`.
     intent_confidence: float = 0.0
 
-    # Writer: core.router (increments) — the only field the router itself
-    # writes, used to bound generate/grade retry loops.
+    # Writer: core.nodes.retrieve (increments on each retrieval attempt).
+    # core.router must stay pure (see core/router.py's docstring), so it
+    # can only read this bound, not increment it itself — the node that
+    # actually re-runs on each retry loop iteration owns the count.
     retry_count: int = 0
 
     # --- Retrieval ---------------------------------------------------------
@@ -102,8 +104,9 @@ class AssistantState:
     overall_grade: str | None = None
 
     # --- Generation output ---------------------------------------------
-    # Writer: core.nodes.explain OR core.nodes.generate (mutually exclusive
-    # per turn, decided by the router).
+    # Writer: exactly one of core.nodes.explain, core.nodes.generate,
+    # core.nodes.ask_for_help, or core.nodes.learn_taught_fact per turn
+    # (mutually exclusive, decided by the router).
     answer: str | None = None
 
     # Writer: core.nodes.generate. Code artifacts produced this turn.
@@ -113,6 +116,19 @@ class AssistantState:
     # Writer: core.nodes.request_solution. True when the assistant is
     # waiting on the user to accept/reject/request changes to an artifact.
     awaiting_feedback: bool = False
+
+    # --- Human feedback learning --------------------------------------
+    # Writer: core.nodes.ask_for_help (sets True) and
+    # core.nodes.learn_taught_fact (clears back to False). True when
+    # retrieval/grading gave up (see core.router.MAX_RETRIES) and the
+    # assistant asked the user to supply the correct answer directly —
+    # the next incoming message is that answer, not a fresh request.
+    awaiting_teaching: bool = False
+
+    # Writer: core.nodes.ask_for_help (sets to the question that failed
+    # retrieval) and core.nodes.learn_taught_fact (clears back to None
+    # once that question + the user's taught answer are stored).
+    pending_question: str | None = None
 
     # --- Observability -----------------------------------------------------
     # Writer: every node appends its own trace entry (node name + metadata).
