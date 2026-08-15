@@ -42,6 +42,7 @@ EXPLAINER_PROMPT = "explain.v1"
 GRADER_PROMPT = "grade.v1"
 GENERATOR_PROMPT = "generate.v1"
 SUMMARIZER_PROMPT = "summarize.v1"
+TEXT_TO_SQL_PROMPT = "text_to_sql.v1"
 
 
 def list_free_models() -> list[str]:
@@ -503,3 +504,24 @@ def run_summarizer(
         settings.summarizer_max_tokens,
     )
     return parsed["summary"], parsed["profile_updates"]
+def run_text_to_sql(question:str,schema:dict)->str:
+  
+    settings = get_settings()
+    system_prompt = _load_prompt(TEXT_TO_SQL_PROMPT)
+    user_content = json.dumps({
+        "question": question,
+        "schema": schema
+    })
+
+    sql_query = _resilient_chat_completion(
+        settings.generator_model, system_prompt, user_content, settings.generator_temperature,
+        settings.generator_max_tokens
+    )
+
+    return sql_query.strip()
+
+        
+
+
+
+        
